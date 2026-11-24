@@ -1,6 +1,6 @@
 [package]
 name = "ready_yet"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "Watch your PC start up: what has launched, what is still to come, and how long until it is usable."
 repository = "https://github.com/fredle/ready-yet"
