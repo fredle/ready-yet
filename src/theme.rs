@@ -216,7 +216,9 @@ pub fn apply(ctx: &egui::Context) {
 /// Uses Windows' Segoe UI for the interface, so the app looks at home, with
 /// Windows' East Asian fonts behind it so file names in any script show.
 /// egui's built-in fonts stay as the last fallback.
-pub fn install_fonts(ctx: &egui::Context) {
+/// `wide` adds the East Asian fallback fonts. They are about 45 MB on disk,
+/// so the sign-in overlay, which shows no item names, goes without them.
+pub fn install_fonts(ctx: &egui::Context, wide: bool) {
     let fonts_dir = PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into()))
         .join("Fonts");
     let mut fonts = egui::FontDefinitions::default();
@@ -243,7 +245,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         strong.insert(0, "seguisb.ttf".to_owned());
     }
     for file in ["YuGothR.ttc", "msyh.ttc", "malgun.ttf"] {
-        if add(&mut fonts, file) {
+        if wide && add(&mut fonts, file) {
             regular.push(file.to_owned());
             strong.push(file.to_owned());
         }

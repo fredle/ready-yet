@@ -91,7 +91,11 @@ impl ItemRecord {
                     && !matches!(self.item.source, crate::startup::Source::Service { delayed: true, .. })
                     && matches!(self.status, Status::Starting | Status::Started)
             }
-            _ => true,
+            // Many sign-in tasks never run (updaters with other conditions,
+            // maintenance jobs), so a task counts only once it has started:
+            // waiting on them added a minute to "usable" for nothing.
+            Kind::Task => !matches!(self.status, Status::Waiting | Status::NotSeen),
+            Kind::App => true,
         }
     }
 }
@@ -310,6 +314,16 @@ mod tests {
         assert!(!other.is_self() && !app("teams").is_self());
         let mut b = boot(1, 0, &[("a", 0)]);
         b.items.push(ItemRecord { status: Status::Started, ..ItemRecord::new(own_run) });
+        assert_eq!(b.progress(), (1, 1));
+    }
+
+    #[test]
+    fn a_task_counts_only_once_it_has_started() {
+        let task = |status| ItemRecord { status, ..ItemRecord::new(item("t", Source::Task { path: r"\\Vendor\\Updater".into() })) };
+        assert!(!task(Status::Waiting).counts() && !task(Status::NotSeen).counts());
+        assert!(task(Status::Starting).counts() && task(Status::Started).counts() && task(Status::Exited).counts());
+        let mut b = boot(1, 0, &[("a", 0)]);
+        b.items.push(task(Status::Waiting));
         assert_eq!(b.progress(), (1, 1));
     }
 

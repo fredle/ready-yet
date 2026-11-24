@@ -66,6 +66,10 @@ impl Log {
             }
             let now = (r.status, r.start_ms);
             let before = self.seen.insert(r.item.id.clone(), now);
+            // Services that were up before sign-in are not news.
+            if before.is_none() && r.before_sign_in {
+                continue;
+            }
             if before != Some(now) {
                 let from = before.map(|b| format!("{:?}", b.0)).unwrap_or_else(|| "-".into());
                 changes.push(format!(
@@ -160,8 +164,10 @@ fn record_block(out: &mut String, b: &BootRecord) {
         b.items.len(),
         b.progress(),
     );
-    let mut items: Vec<&ItemRecord> = b.items.iter().collect();
+    let before = b.items.iter().filter(|r| r.before_sign_in).count();
+    let mut items: Vec<&ItemRecord> = b.items.iter().filter(|r| !r.before_sign_in).collect();
     items.sort_by_key(|r| (r.start_ms.is_none(), r.start_ms));
+    let _ = writeln!(out, "  ({before} services already running before sign-in are left out)");
     for r in items {
         let _ = writeln!(
             out,
@@ -231,6 +237,10 @@ pub fn report(version: &str, settings: &Settings, live: Option<&BootRecord>) -> 
     let _ = writeln!(out, "\nHistory ({} sign-ins, newest first)", all.len());
     let _ = writeln!(out, "----------------------------------");
     for b in all.iter().rev().take(10) {
+        if live.is_some_and(|l| l.sign_in == b.sign_in) {
+            let _ = writeln!(out, "sign-in {} ({}): the one being watched now, as last saved: usable={}ms watched={}ms", when(b.sign_in), b.sign_in, b.usable_ms, b.watched_ms);
+            continue;
+        }
         record_block(&mut out, b);
     }
 

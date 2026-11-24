@@ -3,7 +3,7 @@
 //! window; run normally it shows the last boot's report. The footer with the
 //! auto-update toggle and version is required on every factory app.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use eframe::egui::{self, Align, Layout, Rect, RichText, Sense, pos2, vec2};
 
@@ -40,8 +40,10 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
     let shots = args.iter().any(|a| a == "--shots");
     let collect = !shots && args.iter().any(|a| a == autostart::COLLECT_ARG);
     let mut _guard = None;
+    let mut live = None;
     if collect {
-        if !crate::settings::load().watch {
+        let settings = crate::settings::load();
+        if !settings.watch {
             return Ok(());
         }
         // One collector per session, even if both the Run entry and the
@@ -50,6 +52,18 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
         if _guard.is_none() {
             return Ok(());
         }
+        // Start watching now, before the window exists: at sign-in, creating
+        // the window took ten seconds, and nothing was watched meanwhile.
+        let mode = if args.iter().any(|a| a == autostart::EARLY_ARG) { Mode::Early } else { Mode::Standard };
+        let window: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
+        let repaint = window.clone();
+        let handle = monitor::spawn(mode, settings.delayed.clone(), move || {
+            if let Some(ctx) = repaint.get() {
+                ctx.request_repaint();
+            }
+            crate::tray::refresh();
+        });
+        live = Some((handle, window));
     }
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Ready Yet")
@@ -74,7 +88,7 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
     let result = eframe::run_native(
         "Ready Yet",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(&args, &cc.egui_ctx, collect, main_window(cc))))),
+        Box::new(move |cc| Ok(Box::new(App::new(&args, &cc.egui_ctx, live, main_window(cc))))),
     );
     crate::tray::remove();
     result
@@ -128,6 +142,8 @@ pub struct App {
     live: Option<monitor::Handle>,
     /// Shown as the small sign-in overlay rather than the full window.
     overlay: bool,
+    /// The East Asian fallback fonts are loaded.
+    wide_fonts: bool,
     /// When the overlay first showed "Ready".
     ready_since: Option<f64>,
     /// Normal launch: the last boot and its predecessors' totals.
@@ -144,9 +160,15 @@ pub struct App {
 }
 
 impl App {
-    fn new(args: &[String], ctx: &egui::Context, collect: bool, window: Option<isize>) -> Self {
+    fn new(
+        args: &[String],
+        ctx: &egui::Context,
+        live: Option<(monitor::Handle, Arc<OnceLock<egui::Context>>)>,
+        window: Option<isize>,
+    ) -> Self {
+        let collect = live.is_some();
         theme::apply(ctx);
-        theme::install_fonts(ctx);
+        theme::install_fonts(ctx, !collect);
         // For checking both looks without changing Windows' setting.
         if let Some(theme) = crate::shots::theme_from_args(args) {
             ctx.set_theme(theme);
@@ -158,6 +180,7 @@ impl App {
             shots,
             live: None,
             overlay: collect,
+            wide_fonts: !collect,
             ready_since: None,
             report: None,
             configured: Arc::new(Mutex::new(None)),
@@ -187,13 +210,9 @@ impl App {
             app.settings.watch = false;
             app.save();
         }
-        if collect {
-            let mode = if args.iter().any(|a| a == autostart::EARLY_ARG) { Mode::Early } else { Mode::Standard };
-            let repaint = ctx.clone();
-            let handle = monitor::spawn(mode, app.settings.delayed.clone(), move || {
-                repaint.request_repaint();
-                crate::tray::refresh();
-            });
+        if let Some((handle, slot)) = live {
+            // The collector has been running since before the window existed.
+            let _ = slot.set(ctx.clone());
             if let Some(window) = window {
                 crate::tray::start(handle.shared.clone(), window, ctx.clone());
             }
@@ -253,6 +272,11 @@ impl App {
 
     fn expand(&mut self, ctx: &egui::Context) {
         self.overlay = false;
+        if !self.wide_fonts {
+            // The full window lists item names, which may need them.
+            self.wide_fonts = true;
+            theme::install_fonts(ctx, true);
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));

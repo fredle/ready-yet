@@ -22,6 +22,9 @@ const GIVE_UP_MS: u64 = 300_000;
 const LATE_MS: u64 = 600_000;
 /// An app counts as busy in a second where it used this much processor time.
 const BUSY_CPU_MS: u64 = 20;
+/// Once it has settled, it takes this much in a second to call it busy
+/// again: a passing blip must not reopen it and push "usable" back.
+const REBUSY_CPU_MS: u64 = 250;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Metrics {
@@ -178,8 +181,11 @@ struct Track {
 /// Still to show up when the PC becomes usable?
 fn is_missing(rec: &ItemRecord) -> bool {
     match rec.item.kind() {
-        Kind::Service => rec.status == Status::Waiting,
-        _ => matches!(rec.status, Status::Waiting | Status::NotSeen),
+        // Only apps are watched on after "usable". Tasks and delayed
+        // services that have not run by then mostly never do, and waiting
+        // for them kept Ready Yet in memory for ten minutes.
+        Kind::App => matches!(rec.status, Status::Waiting | Status::NotSeen),
+        Kind::Task | Kind::Service => false,
     }
 }
 
@@ -519,12 +525,24 @@ fn update_track(
                 } else {
                     t.busy_at = Some(now_ms);
                 }
-            } else if cpu_ticks.saturating_sub(t.last_cpu) / 10_000 >= BUSY_CPU_MS {
-                t.busy_at = Some(now_ms);
-                t.rec.estimated = false;
-                t.rec.ready_ms = None;
+            } else {
+                let used = cpu_ticks.saturating_sub(t.last_cpu) / 10_000;
+                let settled = t.rec.ready_ms.is_some() && !t.rec.estimated;
+                if used >= if settled { REBUSY_CPU_MS } else { BUSY_CPU_MS } {
+                    t.busy_at = Some(now_ms);
+                    t.rec.estimated = false;
+                    t.rec.ready_ms = None;
+                }
             }
             t.last_cpu = cpu_ticks;
+            if alive && t.rec.item.is_self() {
+                // Ready Yet is busy for as long as it watches: there is no
+                // settling to time, only when it started and what it cost.
+                t.rec.status = Status::Started;
+                t.rec.estimated = false;
+                t.rec.ready_ms = t.rec.start_ms;
+                return;
+            }
 
             if !t.seen {
                 if let Source::Task { path } = &t.rec.item.source {

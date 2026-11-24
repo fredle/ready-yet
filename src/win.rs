@@ -627,12 +627,86 @@ pub fn logon_tasks() -> Vec<LogonTask> {
         }
         let Ok(root) = service.GetFolder(&BSTR::from("\\")) else { return out };
         let offset = local_utc_offset();
-        walk_folder(&root, &mut out, offset, 0);
+        let me = Me::current();
+        walk_folder(&root, &mut out, offset, 0, &me);
     }
     out
 }
 
-unsafe fn walk_folder(folder: &ITaskFolder, out: &mut Vec<LogonTask>, offset: i64, depth: u32) {
+/// Who is signed in, in the forms a task's principal may name them.
+pub struct Me {
+    /// `freddie`
+    pub name: String,
+    /// `PC\freddie`
+    pub full: String,
+    /// `S-1-5-21-...`
+    pub sid: String,
+}
+
+impl Me {
+    pub fn current() -> Self {
+        let name = std::env::var("USERNAME").unwrap_or_default();
+        let full = match std::env::var("USERDOMAIN") {
+            Ok(d) if !d.is_empty() => format!("{d}\\{name}"),
+            _ => name.clone(),
+        };
+        Self { name, full, sid: current_user_sid().unwrap_or_default() }
+    }
+}
+
+/// This process's user as an `S-1-...` string.
+fn current_user_sid() -> Option<String> {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows::Win32::Security::{GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser};
+    use windows::Win32::System::Threading::OpenProcessToken;
+    unsafe {
+        let mut token = HANDLE::default();
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).ok()?;
+        let mut buf = vec![0u8; 512];
+        let mut len = 0;
+        let got = GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr().cast()), buf.len() as u32, &mut len);
+        let _ = CloseHandle(token);
+        got.ok()?;
+        let user = &*(buf.as_ptr() as *const TOKEN_USER);
+        let mut text = PWSTR::null();
+        ConvertSidToStringSidW(user.User.Sid, &mut text).ok()?;
+        let sid = text.to_string().ok();
+        let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        sid
+    }
+}
+
+/// Does a task whose principal is `user_id` run when `me` signs in? Tasks
+/// for the system accounts and for groups do; a task that names another
+/// person (their own OneDrive task, say) never runs in this session.
+pub fn task_is_for(user_id: &str, me: &Me) -> bool {
+    let u = user_id.trim().to_lowercase();
+    if u.is_empty() || u.starts_with("builtin\\") || u.starts_with("s-1-5-32-") {
+        return true;
+    }
+    const SYSTEM: [&str; 9] = [
+        "system",
+        "nt authority\\system",
+        "s-1-5-18",
+        "local service",
+        "nt authority\\local service",
+        "s-1-5-19",
+        "network service",
+        "nt authority\\network service",
+        "s-1-5-20",
+    ];
+    if SYSTEM.contains(&u.as_str()) {
+        return true;
+    }
+    let name = me.name.to_lowercase();
+    if u.starts_with("s-1-") {
+        return !me.sid.is_empty() && u == me.sid.to_lowercase();
+    }
+    u == me.full.to_lowercase() || (!name.is_empty() && u.rsplit('\\').next() == Some(name.as_str()))
+}
+
+unsafe fn walk_folder(folder: &ITaskFolder, out: &mut Vec<LogonTask>, offset: i64, depth: u32, me: &Me) {
     unsafe {
         let path = folder.Path().map(|b| b.to_string()).unwrap_or_default();
         if path.to_lowercase().starts_with("\\microsoft\\windows") || depth > 6 {
@@ -646,6 +720,13 @@ unsafe fn walk_folder(folder: &ITaskFolder, out: &mut Vec<LogonTask>, offset: i6
                     continue;
                 }
                 let Ok(def) = task.Definition() else { continue };
+                let mut owner = BSTR::new();
+                if let Ok(principal) = def.Principal() {
+                    let _ = principal.UserId(&mut owner);
+                }
+                if !task_is_for(&owner.to_string(), me) {
+                    continue;
+                }
                 let mut logon = false;
                 if let Ok(triggers) = def.Triggers() {
                     let mut count = 0;
@@ -706,7 +787,7 @@ unsafe fn walk_folder(folder: &ITaskFolder, out: &mut Vec<LogonTask>, offset: i6
             let n = subs.Count().unwrap_or(0);
             for i in 1..=n {
                 if let Ok(sub) = subs.get_Item(&variant_i4(i)) {
-                    walk_folder(&sub, out, offset, depth + 1);
+                    walk_folder(&sub, out, offset, depth + 1, me);
                 }
             }
         }
@@ -846,7 +927,10 @@ mod tests {
 pub fn windows_version() -> String {
     let key = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
     let get = |name: &str| reg_get_text(Hive::Machine, key, name).unwrap_or_default();
-    format!("{} {} (build {})", get("ProductName"), get("DisplayVersion"), get("CurrentBuild"))
+    let build = get("CurrentBuild");
+    // Windows 11 still calls itself "Windows 10" in this registry value.
+    let name = if build.parse::<u32>().unwrap_or(0) >= 22_000 { get("ProductName").replace("Windows 10", "Windows 11") } else { get("ProductName") };
+    format!("{name} {} (build {build})", get("DisplayVersion"))
 }
 
 /// This process's working set and private bytes.
@@ -861,4 +945,20 @@ pub fn own_memory() -> (usize, usize) {
         }
     }
     (0, 0)
+}
+
+#[cfg(test)]
+mod task_owner_tests {
+    use super::*;
+
+    #[test]
+    fn only_tasks_that_run_at_my_sign_in_are_kept() {
+        let me = Me { name: "Freddie".into(), full: "PC\\Freddie".into(), sid: "S-1-5-21-1-2-3-1001".into() };
+        for mine in ["", "PC\\freddie", "freddie", "AzureAD\\Freddie", "S-1-5-21-1-2-3-1001", "SYSTEM", "NT AUTHORITY\\SYSTEM", "S-1-5-18", "BUILTIN\\Users", "S-1-5-32-545"] {
+            assert!(task_is_for(mine, &me), "{mine}");
+        }
+        for theirs in ["PC\\Alex", "alex", "S-1-5-21-1-2-3-1009", "S-1-12-1-1175216000-1242900198-1137631668-4064571146"] {
+            assert!(!task_is_for(theirs, &me), "{theirs}");
+        }
+    }
 }
