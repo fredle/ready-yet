@@ -248,6 +248,39 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
+    /// Back to the small overlay by the notification area.
+    fn collapse(&mut self, ctx: &egui::Context) {
+        self.overlay = true;
+        self.ready_since = None;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
+        ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(vec2(300.0, 150.0)));
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(theme::OVERLAY_SIZE));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(false));
+        if let Some(pos) = overlay_position() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+        }
+    }
+
+    /// Closing a window while the collector is still watching must not end
+    /// it: the full window goes back to the overlay, and the overlay hides.
+    fn keep_watching_on_close(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        let Some(h) = self.live.clone() else { return };
+        if h.shared.lock().unwrap().finished {
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        if self.overlay {
+            h.shared.lock().unwrap().exit_when_done = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        } else {
+            self.collapse(ctx);
+        }
+    }
+
     // ------------------------------------------------------------ scenes
 
     /// Puts the app into made-up state number `scene` (0-based) for a Store
@@ -1301,6 +1334,7 @@ impl eframe::App for App {
         if let Some(scene) = self.shots.as_mut().and_then(|shots| shots.drive(&ctx, SHOT_SCENES)) {
             self.show_scene(scene);
         }
+        self.keep_watching_on_close(&ctx);
         let p = theme::palette(&ctx);
         if self.overlay {
             egui::CentralPanel::default()
