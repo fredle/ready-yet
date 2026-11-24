@@ -16,6 +16,7 @@ mod startup;
 mod win;
 mod shots;
 mod theme;
+mod tray;
 mod update;
 
 fn main() {

@@ -227,6 +227,7 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
     if watch_from_ms > LATE_MS {
         // Started by hand long after sign-in: there is no startup to time,
         // and a record now would spoil the averages.
+        crate::tray::remove();
         std::process::exit(0);
     }
     let earlier = history::load();
@@ -312,6 +313,7 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
             repaint();
             if finished {
                 if exit {
+                    crate::tray::remove();
                     std::process::exit(0);
                 }
                 return;

@@ -71,11 +71,22 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
         viewport,
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         "Ready Yet",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(&args, &cc.egui_ctx, collect)))),
-    )
+        Box::new(move |cc| Ok(Box::new(App::new(&args, &cc.egui_ctx, collect, main_window(cc))))),
+    );
+    crate::tray::remove();
+    result
+}
+
+/// The main window's handle, for the tray icon to show it again.
+fn main_window(cc: &eframe::CreationContext<'_>) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match cc.window_handle().ok()?.as_raw() {
+        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -133,7 +144,7 @@ pub struct App {
 }
 
 impl App {
-    fn new(args: &[String], ctx: &egui::Context, collect: bool) -> Self {
+    fn new(args: &[String], ctx: &egui::Context, collect: bool, window: Option<isize>) -> Self {
         theme::apply(ctx);
         theme::install_fonts(ctx);
         // For checking both looks without changing Windows' setting.
@@ -179,7 +190,14 @@ impl App {
         if collect {
             let mode = if args.iter().any(|a| a == autostart::EARLY_ARG) { Mode::Early } else { Mode::Standard };
             let repaint = ctx.clone();
-            app.live = Some(monitor::spawn(mode, app.settings.delayed.clone(), move || repaint.request_repaint()));
+            let handle = monitor::spawn(mode, app.settings.delayed.clone(), move || {
+                repaint.request_repaint();
+                crate::tray::refresh();
+            });
+            if let Some(window) = window {
+                crate::tray::start(handle.shared.clone(), window, ctx.clone());
+            }
+            app.live = Some(handle);
         } else {
             let all = history::load();
             if let Some((last, earlier)) = all.split_last() {
@@ -1335,6 +1353,17 @@ impl eframe::App for App {
             self.show_scene(scene);
         }
         self.keep_watching_on_close(&ctx);
+        if crate::tray::take_open_request() {
+            // Asked for from the tray icon: the window is wanted again, so
+            // the collector must not end the process behind it.
+            if let Some(h) = &self.live {
+                h.shared.lock().unwrap().exit_when_done = false;
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            if self.overlay {
+                self.expand(&ctx);
+            }
+        }
         let p = theme::palette(&ctx);
         if self.overlay {
             egui::CentralPanel::default()
