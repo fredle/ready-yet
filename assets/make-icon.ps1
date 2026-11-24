@@ -14,8 +14,8 @@ Add-Type -AssemblyName System.Drawing
 
 # The tile's gradient, top-left to bottom-right: the app's accent, lighter to
 # deeper. Keep them close in hue; the mark on top is white.
-$TileTop    = [System.Drawing.Color]::FromArgb(255, 74, 134, 255)
-$TileBottom = [System.Drawing.Color]::FromArgb(255, 29, 79, 196)
+$TileTop    = [System.Drawing.Color]::FromArgb(255, 26, 150, 138)
+$TileBottom = [System.Drawing.Color]::FromArgb(255, 11, 93, 86)
 
 function New-RoundRect([single]$x, [single]$y, [single]$w, [single]$h, [single]$r) {
     $p = [System.Drawing.Drawing2D.GraphicsPath]::new()
@@ -33,12 +33,21 @@ function New-RoundRect([single]$x, [single]$y, [single]$w, [single]$h, [single]$
 # no thin lines, no more than three elements.
 #   $g      the Graphics to draw on (anti-aliased)
 #   $left, $top, $size   the square the mark must stay inside
-# Replace the placeholder below (a plain ring) with the app's own mark.
+# Ready Yet's mark: a power symbol, the PC switching on. Two shapes: an open
+# ring with round ends and a bar through the gap.
 function Draw-Mark($g, [single]$left, [single]$top, [single]$size) {
     $white = [System.Drawing.Color]::White
-    $pen = [System.Drawing.Pen]::new($white, [single]($size * 0.14))
-    $inset = $size * 0.12
-    $g.DrawEllipse($pen, $left + $inset, $top + $inset, $size - 2 * $inset, $size - 2 * $inset)
+    $w = [single]($size * 0.15)
+    $pen = [System.Drawing.Pen]::new($white, $w)
+    $pen.StartCap = 'Round'
+    $pen.EndCap = 'Round'
+    $inset = $size * 0.13
+    $ringTop = $top + $inset + $size * 0.05
+    $d = $size - 2 * $inset
+    # Gap of 70 degrees centred on the top (270 degrees in GDI+ terms).
+    $g.DrawArc($pen, $left + $inset, $ringTop, $d, $d, -55, 290)
+    $cx = $left + $size / 2
+    $g.DrawLine($pen, $cx, $top + $size * 0.06, $cx, $top + $size * 0.46)
     $pen.Dispose()
 }
 

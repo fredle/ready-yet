@@ -8,7 +8,12 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod autostart;
+mod history;
+mod monitor;
 mod settings;
+mod startup;
+mod win;
 mod shots;
 mod theme;
 mod update;

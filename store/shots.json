@@ -1,0 +1,7 @@
+{ "accent": "#0F766E",
+  "scenes": [
+    { "name": "1-live", "title": "See your PC start up", "body": "What has launched, what is still to come, and roughly how long is left." },
+    { "name": "2-timeline", "title": "What started when", "body": "A timeline of every startup app, up to the moment the PC was usable." },
+    { "name": "3-cost", "title": "Find what slows you down", "body": "Each app's processor time and disk use during startup, worst first." },
+    { "name": "4-delay", "title": "Start apps once ready", "body": "Hold an app back until the PC is usable, or turn it off at sign-in." }
+  ] }

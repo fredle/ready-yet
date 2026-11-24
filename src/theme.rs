@@ -89,14 +89,14 @@ const fn hex(rgb: u32) -> Color32 {
 const LIGHT: Palette = Palette {
     bg: hex(0xF5F6F8),
     surface: hex(0xFFFFFF),
-    hover: hex(0xF3F6FB),
+    hover: hex(0xF2F6F6),
     border: hex(0xE2E5EB),
     text: hex(0x1A1C22),
     muted: hex(0x5F6471),
-    accent: hex(0x2563EB),
-    accent_text: hex(0x1D4FC4),
+    accent: hex(0x0F766E),
+    accent_text: hex(0x0B5D56),
     on_accent: hex(0xFFFFFF),
-    accent_soft: hex(0xE8EFFD),
+    accent_soft: hex(0xDDF1EE),
     control: hex(0xFFFFFF),
     control_hover: hex(0xEFF1F5),
     track: hex(0xE9EBF0),
@@ -115,10 +115,10 @@ const DARK: Palette = Palette {
     border: hex(0x2C2F3A),
     text: hex(0xEAECF1),
     muted: hex(0x989DAB),
-    accent: hex(0x6E9BFF),
-    accent_text: hex(0x9DBBFF),
-    on_accent: hex(0x10131A),
-    accent_soft: hex(0x1F2B47),
+    accent: hex(0x2CC4B0),
+    accent_text: hex(0x6EDDCE),
+    on_accent: hex(0x0C1615),
+    accent_soft: hex(0x143330),
     control: hex(0x23262F),
     control_hover: hex(0x2C303B),
     track: hex(0x2E313C),
@@ -327,12 +327,79 @@ pub enum Icon {
     Plus,
     Folder,
     Retry,
+    /// A program window: startup apps.
+    App,
+    /// A clock face: scheduled tasks and times.
+    Clock,
+    /// A cog: services.
+    Service,
+    /// Two sliders: options.
+    Options,
+    /// A circled "i".
+    Info,
+    ChevronDown,
+    ChevronRight,
+    Check,
+    /// An expanding square: open the full window.
+    Expand,
 }
 
 pub fn paint_icon(painter: &egui::Painter, centre: Pos2, icon: Icon, color: Color32) {
     let stroke = Stroke::new(1.6, color);
     let c = centre;
     match icon {
+        Icon::App => {
+            let r = Rect::from_center_size(c, vec2(14.0, 12.0));
+            painter.rect_stroke(r, 2, stroke, StrokeKind::Middle);
+            painter.line_segment([pos2(r.left(), r.top() + 3.5), pos2(r.right(), r.top() + 3.5)], stroke);
+        }
+        Icon::Clock => {
+            painter.circle_stroke(c, 6.5, stroke);
+            painter.line_segment([c, c + vec2(0.0, -4.0)], stroke);
+            painter.line_segment([c, c + vec2(3.0, 1.5)], stroke);
+        }
+        Icon::Service => {
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::TAU / 8.0;
+                let d = vec2(a.cos(), a.sin());
+                painter.line_segment([c + d * 4.5, c + d * 7.0], Stroke::new(2.2, color));
+            }
+            painter.circle_stroke(c, 4.5, stroke);
+            painter.circle_filled(c, 1.6, color);
+        }
+        Icon::Options => {
+            for (y, x) in [(-3.5, 2.5), (3.5, -2.5)] {
+                painter.line_segment([c + vec2(-7.0, y), c + vec2(7.0, y)], stroke);
+                painter.circle_filled(c + vec2(x, y), 2.6, color);
+            }
+        }
+        Icon::Info => {
+            painter.circle_stroke(c, 6.5, stroke);
+            painter.line_segment([c + vec2(0.0, -0.5), c + vec2(0.0, 3.5)], stroke);
+            painter.circle_filled(c + vec2(0.0, -3.2), 1.0, color);
+        }
+        Icon::ChevronDown => {
+            let pts = vec![c + vec2(-4.0, -2.0), c + vec2(0.0, 2.0), c + vec2(4.0, -2.0)];
+            painter.add(Shape::line(pts, stroke));
+        }
+        Icon::ChevronRight => {
+            let pts = vec![c + vec2(-2.0, -4.0), c + vec2(2.0, 0.0), c + vec2(-2.0, 4.0)];
+            painter.add(Shape::line(pts, stroke));
+        }
+        Icon::Check => {
+            let pts = vec![c + vec2(-4.5, 0.0), c + vec2(-1.5, 3.0), c + vec2(4.5, -3.5)];
+            painter.add(Shape::line(pts, Stroke::new(1.8, color)));
+        }
+        Icon::Expand => {
+            let d = 5.0;
+            for (sx, sy) in [(-1.0, -1.0), (1.0, 1.0)] {
+                let corner = c + vec2(d * sx, d * sy);
+                painter.line_segment([corner, corner + vec2(-3.5 * sx, 0.0)], stroke);
+                painter.line_segment([corner, corner + vec2(0.0, -3.5 * sy)], stroke);
+            }
+            painter.line_segment([c + vec2(-d, -d), c + vec2(-1.0, -1.0)], stroke);
+            painter.line_segment([c + vec2(d, d), c + vec2(1.0, 1.0)], stroke);
+        }
         Icon::Close => {
             let d = 4.5;
             painter.line_segment([c + vec2(-d, -d), c + vec2(d, d)], stroke);
@@ -457,6 +524,283 @@ pub fn checkbox(ui: &mut egui::Ui, checked: &mut bool, text: impl Into<egui::Wid
         ui.checkbox(checked, text)
     })
     .inner
+}
+
+/// The big number in the summary card.
+pub fn hero() -> FontId {
+    FontId::new(34.0, semibold())
+}
+
+/// Semibold body text, for names in lists.
+pub fn strong() -> FontId {
+    FontId::new(BODY_SIZE, semibold())
+}
+
+/// The sign-in overlay's window size.
+pub const OVERLAY_SIZE: Vec2 = vec2(330.0, 176.0);
+/// Height of a row in the startup list.
+pub const ROW_HEIGHT: f32 = 48.0;
+/// Width of the name column in the timeline.
+pub const TIMELINE_LABEL: f32 = 150.0;
+
+/// What a status means, so each one looks different everywhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Accent,
+    Success,
+    Warn,
+    Error,
+    Neutral,
+}
+
+/// (text, fill) for a tone.
+pub fn tone_colors(p: Palette, tone: Tone) -> (Color32, Color32) {
+    match tone {
+        Tone::Accent => (p.accent_text, p.accent_soft),
+        Tone::Success => (p.success, p.success_soft),
+        Tone::Warn => (p.warn, p.warn_soft),
+        Tone::Error => (p.error, p.error_soft),
+        Tone::Neutral => (p.muted, p.track),
+    }
+}
+
+/// The solid colour of a tone, for bars and dots.
+pub fn tone_solid(p: Palette, tone: Tone) -> Color32 {
+    match tone {
+        Tone::Accent => p.accent,
+        Tone::Success => p.success,
+        Tone::Warn => p.warn,
+        Tone::Error => p.error,
+        Tone::Neutral => p.muted,
+    }
+}
+
+pub fn tone_pill(ui: &mut egui::Ui, text: &str, tone: Tone, p: Palette) -> egui::Response {
+    let (fg, bg) = tone_colors(p, tone);
+    pill(ui, text, fg, bg)
+}
+
+/// A pill with a dot in front, for live state ("Starting up").
+pub fn live_pill(ui: &mut egui::Ui, text: &str, tone: Tone, pulse: bool, p: Palette) -> egui::Response {
+    let (fg, bg) = tone_colors(p, tone);
+    let galley = truncated(ui.painter(), text, FontId::new(12.0, semibold()), fg, 200.0);
+    let (rect, response) = ui.allocate_exact_size(vec2(galley.size().x + 32.0, 24.0), Sense::hover());
+    ui.painter().rect_filled(rect, 12, bg);
+    let dot = pos2(rect.left() + 13.0, rect.center().y);
+    let alpha = if pulse {
+        let t = ui.input(|i| i.time);
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        0.45 + 0.55 * (0.5 + 0.5 * (t * 3.0).sin() as f32)
+    } else {
+        1.0
+    };
+    ui.painter().circle_filled(dot, 3.5, tone_solid(p, tone).gamma_multiply(alpha));
+    ui.painter()
+        .galley(pos2(rect.left() + 22.0, rect.center().y - galley.size().y / 2.0), galley, fg);
+    response
+}
+
+/// Text that acts as a link: accent coloured, underlined on hover.
+pub fn text_link(ui: &mut egui::Ui, text: &str, p: Palette) -> egui::Response {
+    let galley = truncated(ui.painter(), text, body(), p.accent_text, ui.available_width());
+    let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::click());
+    let y = rect.bottom() - 1.0;
+    if response.hovered() {
+        ui.painter().line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(1.0, p.accent_text));
+    }
+    ui.painter().galley(rect.min, galley, p.accent_text);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// A small icon in a soft rounded square, at the start of a list row.
+pub fn icon_tile(painter: &egui::Painter, centre: Pos2, icon: Icon, tone: Tone, p: Palette) {
+    let (fg, bg) = tone_colors(p, tone);
+    painter.rect_filled(Rect::from_center_size(centre, vec2(30.0, 30.0)), CONTROL_RADIUS, bg);
+    paint_icon(painter, centre, icon, fg);
+}
+
+/// A labelled reading with a short bar under it (CPU, memory, disk).
+pub fn meter(ui: &mut egui::Ui, label: &str, value: &str, fraction: f32, width: f32, p: Palette) {
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 44.0), Sense::hover());
+    let painter = ui.painter();
+    let l = truncated(painter, label, small(), p.muted, width);
+    painter.galley(rect.min, l, p.muted);
+    let v = truncated(painter, value, strong(), p.text, width);
+    painter.galley(rect.min + vec2(0.0, 16.0), v, p.text);
+    let bar = Rect::from_min_size(pos2(rect.left(), rect.bottom() - 5.0), vec2(width, 5.0));
+    painter.rect_filled(bar, 2.5, p.track);
+    let f = fraction.clamp(0.0, 1.0);
+    if f > 0.01 {
+        let color = if f > 0.85 { p.warn } else { p.accent };
+        painter.rect_filled(Rect::from_min_size(bar.min, vec2(width * f, 5.0)), 2.5, color);
+    }
+}
+
+/// The last few boots as small bars, the newest highlighted, with a line at
+/// the usual (median) value.
+pub fn boot_bars(ui: &mut egui::Ui, values: &[u64], usual: Option<u64>, size: Vec2, p: Palette) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let max = values.iter().copied().max().unwrap_or(1).max(1) as f32;
+    // Start the scale a little under the shortest boot, so the differences
+    // between boots show.
+    let floor = values.iter().copied().min().unwrap_or(0) as f32 * 0.6;
+    let scale = |v: f32| ((v - floor) / (max - floor).max(1.0)).clamp(0.0, 1.0);
+    let n = values.len().max(1) as f32;
+    let gap = 4.0;
+    let w = ((rect.width() - gap * (n - 1.0)) / n).min(14.0);
+    let total = w * n + gap * (n - 1.0);
+    let left = rect.right() - total;
+    for (i, &v) in values.iter().enumerate() {
+        let h = (scale(v as f32) * rect.height()).max(3.0);
+        let x = left + i as f32 * (w + gap);
+        let bar = Rect::from_min_max(pos2(x, rect.bottom() - h), pos2(x + w, rect.bottom()));
+        let last = i + 1 == values.len();
+        ui.painter().rect_filled(bar, 3, if last { p.accent } else { p.track });
+    }
+    if let Some(u) = usual {
+        let y = rect.bottom() - scale(u as f32) * rect.height();
+        dashed(ui.painter(), pos2(left - 4.0, y), pos2(rect.right(), y), Stroke::new(1.0, p.muted));
+    }
+    response
+}
+
+fn dashed(painter: &egui::Painter, a: Pos2, b: Pos2, stroke: Stroke) {
+    let len = (b - a).length();
+    let dir = (b - a) / len.max(1.0);
+    let mut d = 0.0;
+    while d < len {
+        let e = (d + 3.0).min(len);
+        painter.line_segment([a + dir * d, a + dir * e], stroke);
+        d += 6.0;
+    }
+}
+
+/// One bar of the timeline.
+pub struct Span {
+    pub label: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub tone: Tone,
+    /// Worked out afterwards: drawn lighter.
+    pub estimated: bool,
+}
+
+/// What started when: one row per item with a bar from start to settled, a
+/// time axis, and a line where the PC became usable. Returns the height used.
+pub fn timeline(ui: &mut egui::Ui, spans: &[Span], usable_ms: Option<u64>, now_ms: Option<u64>, p: Palette) {
+    let row_h = 22.0;
+    let axis_h = 22.0;
+    let width = ui.available_width();
+    let height = axis_h + row_h * spans.len() as f32 + 4.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let painter = ui.painter_at(rect.expand(2.0));
+    let plot = Rect::from_min_max(pos2(rect.left() + TIMELINE_LABEL, rect.top()), pos2(rect.right() - 8.0, rect.bottom()));
+    let span_ms = spans
+        .iter()
+        .map(|s| s.end_ms)
+        .chain(usable_ms)
+        .chain(now_ms)
+        .max()
+        .unwrap_or(10_000)
+        .max(10_000) as f32
+        * 1.05;
+    let x_of = |ms: u64| plot.left() + ms as f32 / span_ms * plot.width();
+
+    // Axis: a tick every 10, 20 or 30 s, whichever keeps labels apart.
+    let step = [5_000u64, 10_000, 20_000, 30_000, 60_000]
+        .into_iter()
+        .find(|s| plot.width() / (span_ms / *s as f32) >= 56.0)
+        .unwrap_or(120_000);
+    let mut t = 0;
+    while (t as f32) <= span_ms {
+        let x = x_of(t);
+        painter.line_segment([pos2(x, plot.top() + axis_h - 4.0), pos2(x, plot.bottom())], Stroke::new(1.0, p.border));
+        let label = if t == 0 { "Sign-in".to_owned() } else { crate::history::fmt_secs(t) };
+        let g = truncated(&painter, &label, small(), p.muted, 80.0);
+        let gx = if t == 0 { x } else { x - g.size().x / 2.0 };
+        // Leave room for the "Usable" label at the dashed line.
+        let clear = usable_ms.is_none_or(|u| (x_of(u) - x).abs() > 70.0);
+        if clear && gx + g.size().x <= plot.right() + 8.0 {
+            painter.galley(pos2(gx, plot.top()), g, p.muted);
+        }
+        t += step;
+    }
+
+    for (i, s) in spans.iter().enumerate() {
+        let y = rect.top() + axis_h + row_h * i as f32;
+        let mid = y + row_h / 2.0;
+        let name = truncated(&painter, &s.label, small(), p.text, TIMELINE_LABEL - 12.0);
+        painter.galley(pos2(rect.left(), mid - name.size().y / 2.0), name, p.text);
+        let x0 = x_of(s.start_ms);
+        let x1 = x_of(s.end_ms).max(x0 + 4.0);
+        let bar = Rect::from_min_max(pos2(x0, mid - 6.0), pos2(x1, mid + 6.0));
+        let color = tone_solid(p, s.tone);
+        painter.rect_filled(bar, 3, if s.estimated { color.gamma_multiply(0.45) } else { color });
+    }
+
+    if let Some(now) = now_ms {
+        let x = x_of(now);
+        painter.line_segment([pos2(x, plot.top() + axis_h - 4.0), pos2(x, plot.bottom())], Stroke::new(1.5, p.accent));
+    }
+    if let Some(u) = usable_ms {
+        let x = x_of(u);
+        dashed(&painter, pos2(x, plot.top() + axis_h - 4.0), pos2(x, plot.bottom()), Stroke::new(1.5, p.success));
+        let text = format!("Usable at {}", crate::history::fmt_secs(u));
+        let g = truncated(&painter, &text, FontId::new(SMALL_SIZE, semibold()), p.success, 160.0);
+        let gx = (x - g.size().x / 2.0).min(rect.right() - g.size().x);
+        painter.galley(pos2(gx, plot.top()), g, p.success);
+    }
+}
+
+/// A rounded bar showing a share of the largest value, for the cost list.
+pub fn paint_share_bar(painter: &egui::Painter, rect: Rect, fraction: f32, tone: Tone, p: Palette) {
+    let r = rect.height() / 2.0;
+    painter.rect_filled(rect, r, p.track);
+    let f = fraction.clamp(0.0, 1.0);
+    if f > 0.0 {
+        let fill = Rect::from_min_size(rect.min, vec2((rect.width() * f).max(rect.height()), rect.height()));
+        painter.rect_filled(fill, r, tone_solid(p, tone));
+    }
+}
+
+/// A status pill painted with its right edge at `right_centre`. Returns its
+/// width.
+pub fn paint_tone_pill(painter: &egui::Painter, right_centre: Pos2, text: &str, tone: Tone, p: Palette) -> f32 {
+    let (fg, bg) = tone_colors(p, tone);
+    let galley = truncated(painter, text, FontId::new(12.0, semibold()), fg, 160.0);
+    let w = galley.size().x + 20.0;
+    let rect = Rect::from_min_size(pos2(right_centre.x - w, right_centre.y - 12.0), vec2(w, 24.0));
+    painter.rect_filled(rect, 12, bg);
+    painter.galley(rect.center() - galley.size() / 2.0, galley, fg);
+    w
+}
+
+/// The empty-state drawing: a monitor with a power mark and a short, partly
+/// filled progress bar under it.
+pub fn paint_startup_motif(painter: &egui::Painter, centre: Pos2, p: Palette) {
+    let screen = Rect::from_center_size(centre + vec2(0.0, -10.0), vec2(96.0, 64.0));
+    painter.rect_filled(screen, 8, p.accent_soft);
+    painter.rect_stroke(screen, 8, Stroke::new(2.0, p.accent), StrokeKind::Middle);
+    let stand = [screen.center_bottom(), screen.center_bottom() + vec2(0.0, 10.0)];
+    painter.line_segment(stand, Stroke::new(2.0, p.accent));
+    painter.line_segment(
+        [screen.center_bottom() + vec2(-16.0, 10.0), screen.center_bottom() + vec2(16.0, 10.0)],
+        Stroke::new(2.0, p.accent),
+    );
+    // Power symbol: an open ring with a stroke through the gap.
+    let c = screen.center() + vec2(0.0, -4.0);
+    let r = 11.0;
+    let points: Vec<Pos2> = (0..=24)
+        .map(|i| {
+            let a = -std::f32::consts::FRAC_PI_2 + 0.6 + i as f32 / 24.0 * (std::f32::consts::TAU - 1.2);
+            c + vec2(a.cos() * r, a.sin() * r)
+        })
+        .collect();
+    painter.add(Shape::line(points, Stroke::new(2.4, p.accent)));
+    painter.line_segment([c + vec2(0.0, -r - 2.0), c + vec2(0.0, -2.0)], Stroke::new(2.4, p.accent));
+    let track = Rect::from_center_size(screen.center() + vec2(0.0, 20.0), vec2(56.0, 5.0));
+    painter.rect_filled(track, 2.5, p.surface);
+    painter.rect_filled(Rect::from_min_size(track.min, vec2(22.0, 5.0)), 2.5, p.accent);
 }
 
 /// WCAG 2 contrast ratio between two colours (1 to 21).

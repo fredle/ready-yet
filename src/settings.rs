@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::startup::Item;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Settings {
     /// Check for updates in the background and install them silently.
@@ -13,6 +15,21 @@ pub struct Settings {
     /// a day.
     #[serde(default)]
     pub last_update_check: u64,
+    /// Watch every sign-in (standard mode Run entry or early-mode task).
+    #[serde(default = "default_true")]
+    pub watch: bool,
+    /// Early mode: the logon task is registered.
+    #[serde(default)]
+    pub early: bool,
+    /// Set once the Run entry has been written on first launch.
+    #[serde(default)]
+    pub set_up: bool,
+    /// Items Ready Yet holds back and starts once the PC is usable.
+    #[serde(default)]
+    pub delayed: Vec<Item>,
+    /// Items turned off from Ready Yet, so they can be turned back on.
+    #[serde(default)]
+    pub turned_off: Vec<Item>,
 }
 
 fn default_true() -> bool {
@@ -24,6 +41,11 @@ impl Default for Settings {
         Self {
             auto_update: true,
             last_update_check: 0,
+            watch: true,
+            early: false,
+            set_up: false,
+            delayed: Vec::new(),
+            turned_off: Vec::new(),
         }
     }
 }

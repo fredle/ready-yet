@@ -10,6 +10,31 @@ eframe = { version = "0.36.2", default-features = false, features = ["glow", "de
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 velopack = "1.2"
+# Direct Win32 calls for processes, services, the registry, Task Scheduler and
+# shortcuts. Already in the dependency tree through eframe/velopack; bindings
+# only, no native library.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Environment",
+    "Win32_System_Ole",
+    "Win32_System_Performance",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_SystemInformation",
+    "Win32_System_TaskScheduler",
+    "Win32_System_Threading",
+    "Win32_System_Time",
+    "Win32_UI_HiDpi",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [profile.release]
 opt-level = "s"
