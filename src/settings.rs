@@ -24,6 +24,9 @@ pub struct Settings {
     /// Set once the Run entry has been written on first launch.
     #[serde(default)]
     pub set_up: bool,
+    /// The first-launch question about starting earlier has been answered.
+    #[serde(default)]
+    pub asked_early: bool,
     /// Items Ready Yet holds back and starts once the PC is usable.
     #[serde(default)]
     pub delayed: Vec<Item>,
@@ -44,6 +47,7 @@ impl Default for Settings {
             watch: true,
             early: false,
             set_up: false,
+            asked_early: false,
             delayed: Vec::new(),
             turned_off: Vec::new(),
         }

@@ -144,6 +144,8 @@ pub struct App {
     overlay: bool,
     /// The East Asian fallback fonts are loaded.
     wide_fonts: bool,
+    /// Showing the first-launch question about starting earlier.
+    ask_early: bool,
     /// When the overlay first showed "Ready".
     ready_since: Option<f64>,
     /// Normal launch: the last boot and its predecessors' totals.
@@ -181,6 +183,7 @@ impl App {
             live: None,
             overlay: collect,
             wide_fonts: !collect,
+            ask_early: false,
             ready_since: None,
             report: None,
             configured: Arc::new(Mutex::new(None)),
@@ -210,6 +213,9 @@ impl App {
             app.settings.watch = false;
             app.save();
         }
+        // Asked once, the first time the app is opened by hand: that is before
+        // the first watched sign-in, when the answer matters most.
+        app.ask_early = !collect && app.settings.watch && !app.settings.early && !app.settings.asked_early;
         if let Some((handle, slot)) = live {
             // The collector has been running since before the window existed.
             let _ = slot.set(ctx.clone());
@@ -607,6 +613,11 @@ impl App {
             self.note_line(ui, p);
             return;
         }
+        if self.ask_early {
+            self.early_card(ui, p);
+            self.note_line(ui, p);
+            return;
+        }
         let Some(view) = view else {
             self.configured_card(ui, p);
             self.note_line(ui, p);
@@ -822,6 +833,45 @@ impl App {
                 }
             }
         });
+    }
+
+    /// The first-launch question: watch from the first second of sign-in?
+    fn early_card(&mut self, ui: &mut egui::Ui, p: Palette) {
+        let ctx = ui.ctx().clone();
+        theme::card(p).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            theme::section_label(ui, "Before your next sign-in", p);
+            ui.add_space(2.0);
+            ui.label(RichText::new("Watch from the first second?").font(theme::title()).color(p.text));
+            ui.add_space(4.0);
+            for text in [
+                "Ready Yet is set to open with your other startup apps, so it cannot watch anything that starts before it does. It works out those timings afterwards.",
+                "Start earlier opens it the moment you sign in. You see everything as it happens, and you can stop an app before it opens.",
+                "Windows will ask for administrator approval once. You can change this at any time in Options.",
+            ] {
+                ui.add(egui::Label::new(RichText::new(text).font(theme::body()).color(p.muted)).wrap());
+                ui.add_space(4.0);
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.add(theme::primary_button(p, "Start earlier", true, 150.0)).clicked() {
+                    self.set_early(&ctx, true);
+                    // Approval refused: leave the question up with the reason.
+                    if self.settings.early {
+                        self.answer_early();
+                    }
+                }
+                if ui.add(theme::secondary_button(p, "Not now")).clicked() {
+                    self.answer_early();
+                }
+            });
+        });
+    }
+
+    fn answer_early(&mut self) {
+        self.ask_early = false;
+        self.settings.asked_early = true;
+        self.save();
     }
 
     fn options_card(&mut self, ui: &mut egui::Ui, p: Palette) {
