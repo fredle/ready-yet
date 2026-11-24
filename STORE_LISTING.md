@@ -12,7 +12,7 @@ See what your PC is starting at sign-in, what is still to come, and how long unt
 
 After you sign in, your PC spends a minute or more starting apps and services in the background, and Windows shows you nothing about it. You wait, you guess, and you never find out which program is costing you the time. Task Manager's Startup apps page lists what is set to start, not what has started, what is still to come or when the PC will settle.
 
-Ready Yet watches the startup itself. At sign-in a small window shows how many startup items have started ("9 of 15 started"), CPU, memory and disk activity, and the time left until the PC is usable. When everything has started and the PC has been quiet for a few seconds, it saves the timings and closes, so it costs nothing for the rest of the day.
+Ready Yet watches the startup itself. At sign-in a small window shows how many startup items have started ("9 of 15 started"), CPU, memory and disk activity, and the time left until the PC is usable. When everything has started and the PC has been quiet for a few seconds, it saves the timings and hides. If an app has still not started, Ready Yet keeps watching for it from the notification area for up to ten minutes, then closes, so it costs nothing for the rest of the day.
 
 After each boot you get a report:
 - How long the PC took to become usable, against your usual time over the last ten boots.
@@ -43,7 +43,9 @@ Nothing leaves your PC. There is no account and no telemetry.
 - Covers Run keys, Startup folders, sign-in scheduled tasks and automatic services
 - Services listed read-only with a short note on what each one is
 - Works without administrator rights; optional Start earlier mode watches from the first second
-- Closes itself once the PC is ready
+- Keeps watching for apps that start late, for up to ten minutes after sign-in
+- Notification area icon with progress in its tooltip; click it to open the report
+- Closes itself once startup is over
 - Lists itself among the startup items with its own measured cost
 - Light and dark themes that follow Windows
 

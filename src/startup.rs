@@ -56,6 +56,16 @@ impl Item {
         self.kind() != Kind::Service
     }
 
+    /// Ready Yet's own sign-in entry: its Run value or its early-start task.
+    /// Listed for honesty about its cost, but never counted or acted on.
+    pub fn is_self(&self) -> bool {
+        match &self.source {
+            Source::Run { machine: false, once: false, value, .. } => value == crate::autostart::VALUE,
+            Source::Task { path } => path.eq_ignore_ascii_case(crate::autostart::TASK_NAME),
+            _ => false,
+        }
+    }
+
     /// Per-user entries can be turned off without administrator rights.
     pub fn can_disable(&self) -> bool {
         matches!(

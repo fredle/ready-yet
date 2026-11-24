@@ -588,9 +588,12 @@ pub fn live_pill(ui: &mut egui::Ui, text: &str, tone: Tone, pulse: bool, p: Pale
     ui.painter().rect_filled(rect, 12, bg);
     let dot = pos2(rect.left() + 13.0, rect.center().y);
     let alpha = if pulse {
+        // Dim and bright on alternate seconds. No repaint is asked for: the
+        // collector's once-a-second tick redraws the window anyway, and a
+        // smooth 20-frames-a-second pulse made Ready Yet the most expensive
+        // thing at sign-in.
         let t = ui.input(|i| i.time);
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-        0.45 + 0.55 * (0.5 + 0.5 * (t * 3.0).sin() as f32)
+        if (t as u64) % 2 == 0 { 1.0 } else { 0.5 }
     } else {
         1.0
     };

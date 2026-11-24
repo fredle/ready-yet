@@ -81,6 +81,10 @@ impl ItemRecord {
     /// already started before sign-in. Delayed services come after "usable"
     /// by design and are left out.
     pub fn counts(&self) -> bool {
+        // Ready Yet itself has started by definition: not part of the count.
+        if self.item.is_self() {
+            return false;
+        }
         match self.item.kind() {
             Kind::Service => {
                 !self.before_sign_in
@@ -295,6 +299,18 @@ mod tests {
         started.items[1].start_ms = Some(150_000);
         assert!(!never_starts(&[missing(WATCH_END_MS), started, missing(WATCH_END_MS)], "late"));
         assert!(!never_starts(&[missing(WATCH_END_MS), missing(WATCH_END_MS)], "a"));
+    }
+
+    #[test]
+    fn ready_yet_itself_is_listed_but_not_counted() {
+        let own_run = item("me", Source::Run { machine: false, wow32: false, once: false, value: "Ready Yet".into() });
+        let own_task = item("t", Source::Task { path: r"\readyyet\early start".into() });
+        let other = item("o", Source::Run { machine: true, wow32: false, once: false, value: "Ready Yet".into() });
+        assert!(own_run.is_self() && own_task.is_self());
+        assert!(!other.is_self() && !app("teams").is_self());
+        let mut b = boot(1, 0, &[("a", 0)]);
+        b.items.push(ItemRecord { status: Status::Started, ..ItemRecord::new(own_run) });
+        assert_eq!(b.progress(), (1, 1));
     }
 
     #[test]

@@ -841,3 +841,24 @@ mod tests {
         assert_eq!(ft_to_unix(116_444_736_000_000_000 + 10_000_000 * 60), 60);
     }
 }
+
+/// "Windows 11 Pro 24H2 (build 26100)", read from the registry.
+pub fn windows_version() -> String {
+    let key = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+    let get = |name: &str| reg_get_text(Hive::Machine, key, name).unwrap_or_default();
+    format!("{} {} (build {})", get("ProductName"), get("DisplayVersion"), get("CurrentBuild"))
+}
+
+/// This process's working set and private bytes.
+pub fn own_memory() -> (usize, usize) {
+    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
+    let mut m = PROCESS_MEMORY_COUNTERS_EX::default();
+    let size = size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    unsafe {
+        let p = &mut m as *mut PROCESS_MEMORY_COUNTERS_EX as *mut PROCESS_MEMORY_COUNTERS;
+        if GetProcessMemoryInfo(GetCurrentProcess(), p, size).is_ok() {
+            return (m.WorkingSetSize, m.PrivateUsage);
+        }
+    }
+    (0, 0)
+}

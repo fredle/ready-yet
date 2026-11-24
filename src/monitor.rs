@@ -234,6 +234,34 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
     let totals = history::recent_totals(&earlier);
 
     let mut tracks: Vec<Track> = gather_tracks(&earlier, &delayed);
+    let mut log = crate::diag::Log::default();
+    let me = std::process::id();
+    log.add(
+        watch_from_ms,
+        format!(
+            "start {} mode={mode:?} sign_in={} session={session} processes={} earlier_boots={} tracks={} held_back={}",
+            env!("CARGO_PKG_VERSION"),
+            win::ft_to_unix(sign_in),
+            procs.len(),
+            earlier.len(),
+            tracks.len(),
+            delayed.len(),
+        ),
+    );
+    for t in tracks.iter().filter(|t| t.rec.item.kind() != Kind::Service) {
+        log.add(
+            watch_from_ms,
+            format!(
+                "track {} | {} | wait_limit={}ms never_starts={} self={} | exe={}",
+                t.rec.item.name,
+                t.rec.item.origin(),
+                t.limit_ms,
+                t.never_starts,
+                t.rec.item.is_self(),
+                t.rec.item.exe.as_deref().unwrap_or("-"),
+            ),
+        );
+    }
     {
         let mut s = shared.lock().unwrap();
         s.record.sign_in = win::ft_to_unix(sign_in);
@@ -291,6 +319,20 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
             }
         }
         first = false;
+        log.observe(
+            &crate::diag::Tick {
+                now_ms,
+                cpu,
+                disk,
+                mem,
+                quiet_since,
+                usable: usable_ms.is_some(),
+                work_ms: tick.elapsed().as_millis() as u64,
+                own_cpu_ms: procs.iter().find(|p| p.pid == me).map(|p| p.cpu / 10_000).unwrap_or(0),
+                processes: procs.len(),
+            },
+            tracks.iter().map(|t| &t.rec),
+        );
 
         if usable_ms.is_some() {
             // Usable, and the record is saved. Keep watching only for the
@@ -312,6 +354,9 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
             late_started = started;
             repaint();
             if finished {
+                let still: Vec<&str> = tracks.iter().filter(|t| t.late && is_missing(&t.rec)).map(|t| t.rec.item.name.as_str()).collect();
+                log.add(now_ms, format!("finished: pending={pending} late_started={started} never_seen={still:?} exit={exit}"));
+                log.save();
                 if exit {
                     crate::tray::remove();
                     std::process::exit(0);
@@ -350,6 +395,12 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
                         settle(&mut t.rec, now_ms);
                     }
                 }
+                let late: Vec<&str> = tracks.iter().filter(|t| t.late).map(|t| t.rec.item.name.as_str()).collect();
+                log.add(
+                    now_ms,
+                    format!("usable at {at}ms: all_done={all_done} quiet_since={quiet_since:?} cpu {cpu:.0}% | still watching for {late:?}"),
+                );
+                log.save();
                 s.record.items = snapshot(&tracks, now_ms, false);
                 s.record.usable_ms = at;
                 s.record.watched_ms = now_ms;
@@ -580,6 +631,34 @@ mod tests {
 
     /// Reads this machine's real startup list and processes. Read-only.
     /// `cargo test --release -- --ignored --nocapture live_smoke`
+    /// What one second of watching costs: run with
+    /// `cargo test --release -- --ignored live_cost --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_cost() {
+        win::com_init();
+        let mut lister = win::ProcessLister::default();
+        let me = std::process::id();
+        let mut own_cpu = |l: &mut win::ProcessLister| l.list().iter().find(|p| p.pid == me).map(|p| p.cpu / 10_000).unwrap_or(0);
+        let mut time = |name: &str, n: u32, f: &mut dyn FnMut()| {
+            let c0 = own_cpu(&mut lister);
+            let t0 = Instant::now();
+            for _ in 0..n {
+                f();
+            }
+            let wall = t0.elapsed().as_millis() as u64 / n as u64;
+            let cpu = (own_cpu(&mut lister) - c0) / n as u64;
+            println!("{name:<22} wall {wall:>5} ms  own cpu {cpu:>5} ms  (each of {n})");
+        };
+        time("logon_tasks", 5, &mut || drop(win::logon_tasks()));
+        time("service_statuses", 20, &mut || drop(win::service_statuses()));
+        let mut l2 = win::ProcessLister::default();
+        time("process list", 20, &mut || drop(l2.list()));
+        time("startup gather", 3, &mut || drop(crate::startup::gather()));
+        let mut c = win::Counters::open().expect("pdh");
+        time("counters sample", 20, &mut || drop(c.sample()));
+    }
+
     #[test]
     #[ignore]
     fn live_smoke() {

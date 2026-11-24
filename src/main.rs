@@ -9,6 +9,7 @@
 
 mod app;
 mod autostart;
+mod diag;
 mod history;
 mod monitor;
 mod settings;

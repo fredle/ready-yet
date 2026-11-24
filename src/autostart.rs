@@ -6,7 +6,7 @@
 use crate::win::{self, Hive};
 
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const VALUE: &str = "Ready Yet";
+pub const VALUE: &str = "Ready Yet";
 pub const TASK_NAME: &str = r"\ReadyYet\Early start";
 pub const COLLECT_ARG: &str = "--collect";
 pub const EARLY_ARG: &str = "--early";
@@ -26,6 +26,11 @@ pub fn set_standard(on: bool) -> bool {
     } else {
         win::reg_get_text(Hive::User, RUN, VALUE).is_none() || win::reg_delete(Hive::User, RUN, VALUE)
     }
+}
+
+/// The Run entry's command line as it stands, for diagnostics.
+pub fn standard_command() -> Option<String> {
+    win::reg_get_text(Hive::User, RUN, VALUE)
 }
 
 pub fn standard_is_set() -> bool {

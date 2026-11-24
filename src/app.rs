@@ -814,21 +814,35 @@ impl App {
             if theme::checkbox(ui, &mut early, "Start earlier").changed() {
                 self.set_early(&ctx, early);
             }
-            ui.horizontal(|ui| {
-                ui.add_space(26.0);
-                ui.label(
+            // Indented under the checkbox label. A frame, not a horizontal
+            // row: a row never wraps, and the text ran out of the card.
+            egui::Frame::new().inner_margin(egui::Margin { left: 26, right: 0, top: 0, bottom: 0 }).show(ui, |ui| {
+                ui.add(egui::Label::new(
                     RichText::new(
                         "Watches from the first second of sign-in and can stop apps before they open. \
                          Asks for administrator approval once, and again to turn it off.",
                     )
                     .font(theme::small())
                     .color(p.muted),
-                );
+                ).wrap());
             });
             ui.add_space(8.0);
-            if ui.add(theme::secondary_button(p, "Done")).clicked() {
-                self.options = false;
-            }
+            ui.horizontal(|ui| {
+                if ui.add(theme::secondary_button(p, "Done")).clicked() {
+                    self.options = false;
+                }
+                if ui
+                    .add(theme::secondary_button(p, "Copy diagnostics"))
+                    .on_hover_text("Copies a text report for troubleshooting: settings, timings and your startup items. Nothing is sent anywhere.")
+                    .clicked()
+                {
+                    let live = self.live.as_ref().map(|h| h.shared.lock().unwrap().record.clone());
+                    let text = crate::diag::report(&self.version, &self.settings, live.as_ref());
+                    let lines = text.lines().count();
+                    ctx.copy_text(text);
+                    self.say(&ctx, format!("Diagnostics copied ({lines} lines). Paste them where you need them."), Tone::Success);
+                }
+            });
         });
     }
 
@@ -942,8 +956,22 @@ impl App {
             0.0
         };
         let text_w = (w - 46.0 - pill_w - 16.0).max(40.0);
-        let name = theme::truncated(ui.painter(), &r.item.name, theme::strong(), p.text, text_w);
+        let own = r.item.is_self();
+        let tag = "This app";
+        let tag_w = if own { 70.0 } else { 0.0 };
+        let name = theme::truncated(ui.painter(), &r.item.name, theme::strong(), p.text, text_w - tag_w);
+        let name_w = name.size().x;
         ui.painter().galley(pos2(rect.left() + 46.0, rect.top() + 6.0), name, p.text);
+        if own {
+            // So it is not mistaken for someone else's startup item.
+            ui.painter().text(
+                pos2(rect.left() + 46.0 + name_w + 8.0, rect.top() + 8.0),
+                egui::Align2::LEFT_TOP,
+                tag,
+                theme::small(),
+                p.accent_text,
+            );
+        }
         let sub = match mode {
             Some((m, from, live)) => describe(r, m, from, live),
             None => r.item.origin().to_owned(),
@@ -974,6 +1002,26 @@ impl App {
                 }
                 if r.item.kind() == Kind::Service {
                     ui.label(RichText::new("Services are shown read-only.").font(theme::small()).color(p.muted));
+                    return;
+                }
+                if own {
+                    // Ending, holding back or turning off its own entry
+                    // would break it; the option does the job properly.
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(
+                                "This is Ready Yet itself. To stop it opening at sign-in, turn off \
+                                 \"Watch every sign-in\" in Options.",
+                            )
+                            .font(theme::small())
+                            .color(p.muted),
+                        )
+                        .wrap(),
+                    );
+                    ui.add_space(2.0);
+                    if ui.add(theme::secondary_button(p, "Open Options")).clicked() {
+                        self.options = true;
+                    }
                     return;
                 }
                 ui.add_space(2.0);
@@ -1091,7 +1139,8 @@ impl App {
         let mut slow: Vec<(&ItemRecord, u64)> = rec
             .items
             .iter()
-            .filter(|r| r.item.kind() != Kind::Service)
+            // Ready Yet is busy for as long as it watches: not a slow starter.
+            .filter(|r| r.item.kind() != Kind::Service && !r.item.is_self())
             .filter_map(|r| Some((r, r.ready_ms?.saturating_sub(r.start_ms?))))
             .filter(|(_, d)| *d > 0)
             .collect();
