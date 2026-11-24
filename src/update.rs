@@ -14,7 +14,11 @@ const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 /// Must run before anything else in `main` - Velopack may terminate or
 /// restart the process to carry out an install/uninstall/update step.
 pub fn run_app_hooks() {
-    VelopackApp::build().run();
+    // Uninstall must not leave Ready Yet's sign-in entry or task behind, or
+    // leave held-back apps switched off with nothing to start them.
+    VelopackApp::build()
+        .on_before_uninstall_fast_callback(|_| crate::autostart::remove_all())
+        .run();
 }
 
 /// The running version, for display.

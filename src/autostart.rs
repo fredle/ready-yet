@@ -127,6 +127,26 @@ pub fn disable_early() -> Result<(), String> {
     }
 }
 
+/// Run on uninstall: undoes everything that would outlive the app. Held-back
+/// apps start with Windows again (nothing would start them otherwise), and
+/// the Run entry and the early task go. Apps the user turned off stay off:
+/// that was their choice, and Task Manager can turn them back on.
+pub fn remove_all() {
+    let settings = crate::settings::load();
+    for item in &settings.delayed {
+        crate::startup::set_enabled(item, true);
+    }
+    set_standard(false);
+    if settings.early {
+        // The task was made with administrator rights, so a quiet delete is
+        // usually refused; ask once only then.
+        let args = format!("/Delete /TN \"{TASK_NAME}\" /F");
+        if win::shell_run("schtasks.exe", &args, false, true, true) != Some(0) {
+            win::shell_run("schtasks.exe", &args, true, true, true);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
