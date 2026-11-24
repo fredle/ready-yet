@@ -101,6 +101,10 @@ pub struct BootRecord {
     pub usable_ms: u64,
     /// ms from sign-in until Ready Yet itself was running.
     pub watch_from_ms: u64,
+    /// ms from sign-in until Ready Yet stopped watching. Items still missing
+    /// when the PC became usable are watched on until `WATCH_END_MS`.
+    #[serde(default)]
+    pub watched_ms: u64,
     pub items: Vec<ItemRecord>,
 }
 
@@ -165,6 +169,23 @@ pub fn typical_start(history: &[BootRecord], id: &str) -> Option<u64> {
         .filter_map(|r| r.start_ms)
         .collect();
     median(&starts)
+}
+
+/// Items that have not shown up when the PC becomes usable are watched until
+/// this long after sign-in, because Windows starts some apps minutes late.
+pub const WATCH_END_MS: u64 = 600_000;
+
+/// True when recent boots watched for the item to the very end and it never
+/// started: not worth staying open for again. Boots that stopped watching
+/// sooner say nothing either way, so an item is re-checked as they age out.
+pub fn never_starts(history: &[BootRecord], id: &str) -> bool {
+    let skip = history.len().saturating_sub(COMPARE);
+    let full: Vec<&ItemRecord> = history[skip..]
+        .iter()
+        .filter(|b| b.watched_ms >= WATCH_END_MS)
+        .filter_map(|b| b.items.iter().find(|r| r.item.id == id))
+        .collect();
+    full.len() >= 2 && full.iter().all(|r| r.start_ms.is_none())
 }
 
 /// How long to wait for an item that has not shown up before calling it
@@ -249,11 +270,31 @@ mod tests {
             mode: Mode::Standard,
             usable_ms: usable,
             watch_from_ms: 0,
+            watched_ms: usable,
             items: starts
                 .iter()
                 .map(|(id, s)| ItemRecord { start_ms: Some(*s), status: Status::Started, ..ItemRecord::new(app(id)) })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn an_item_is_given_up_on_only_after_two_full_watches() {
+        let missing = |watched| {
+            let mut b = boot(1, 40_000, &[("a", 1_000)]);
+            b.watched_ms = watched;
+            b.items.push(ItemRecord { status: Status::NotSeen, ..ItemRecord::new(app("late")) });
+            b
+        };
+        // Stopped watching early: says nothing about a late starter.
+        assert!(!never_starts(&[missing(40_000), missing(40_000), missing(40_000)], "late"));
+        assert!(!never_starts(&[missing(WATCH_END_MS)], "late"));
+        assert!(never_starts(&[missing(WATCH_END_MS), missing(WATCH_END_MS)], "late"));
+        // It did start once in a full watch.
+        let mut started = missing(WATCH_END_MS);
+        started.items[1].start_ms = Some(150_000);
+        assert!(!never_starts(&[missing(WATCH_END_MS), started, missing(WATCH_END_MS)], "late"));
+        assert!(!never_starts(&[missing(WATCH_END_MS), missing(WATCH_END_MS)], "a"));
     }
 
     #[test]

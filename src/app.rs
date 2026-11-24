@@ -440,7 +440,7 @@ impl App {
                 if theme::icon_button(ui, Icon::Close, p).on_hover_text("Hide. Timing carries on.").clicked() {
                     if let Some(h) = &self.live {
                         let mut s = h.shared.lock().unwrap();
-                        if s.done {
+                        if s.finished {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         } else {
                             s.exit_when_done = true;
@@ -472,7 +472,15 @@ impl App {
             let now = ctx.input(|i| i.time);
             let since = *self.ready_since.get_or_insert(now);
             if now - since > READY_LINGER && self.overlay {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                // Late starters may still be watched: hide, and let the
+                // collector end the process when it has finished.
+                let finished = self.live.as_ref().is_none_or(|h| {
+                    let mut s = h.shared.lock().unwrap();
+                    s.exit_when_done = true;
+                    s.finished
+                });
+                let cmd = if finished { egui::ViewportCommand::Close } else { egui::ViewportCommand::Visible(false) };
+                ctx.send_viewport_cmd(cmd);
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
             return;
@@ -1282,6 +1290,7 @@ fn demo_record(at: Option<u64>) -> BootRecord {
         mode: Mode::Standard,
         usable_ms: 49_000,
         watch_from_ms: 1_900,
+        watched_ms: 49_000,
         items,
     }
 }

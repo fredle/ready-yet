@@ -1,5 +1,6 @@
 //! The collector: watches the startup items once a second from sign-in until
-//! the PC is usable, then writes the boot's timings and stops.
+//! the PC is usable, then writes the boot's timings. Items that had not shown
+//! up by then are watched on, so apps Windows starts late are still recorded.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -7,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::history::{self, BootRecord, ItemRecord, Mode, Status};
-use crate::startup::{Item, Source};
+use crate::startup::{Item, Kind, Source};
 use crate::win::{self, Proc};
 
 /// The PC counts as settled below these for `SETTLE_MS`.
@@ -43,7 +44,9 @@ pub struct Shared {
     pub earlier: Vec<BootRecord>,
     /// The latest result of an action, for the user.
     pub note: Option<String>,
-    /// The window was closed: exit as soon as the record is saved.
+    /// The collector has stopped: nothing is watched any more.
+    pub finished: bool,
+    /// The window was closed: exit as soon as the collector has finished.
     pub exit_when_done: bool,
 }
 
@@ -67,12 +70,13 @@ impl Handle {
 /// Starts the collector thread. `repaint` is called after every tick.
 pub fn spawn(mode: Mode, delayed: Vec<Item>, repaint: impl Fn() + Send + 'static) -> Handle {
     let shared = Arc::new(Mutex::new(Shared {
-        record: BootRecord { sign_in: 0, mode, usable_ms: 0, watch_from_ms: 0, items: Vec::new() },
+        record: BootRecord { sign_in: 0, mode, usable_ms: 0, watch_from_ms: 0, watched_ms: 0, items: Vec::new() },
         metrics: Metrics::default(),
         listed: false,
         done: false,
         earlier: Vec::new(),
         note: None,
+        finished: false,
         exit_when_done: false,
     }));
     let (tx, rx) = channel();
@@ -165,6 +169,44 @@ struct Track {
     end_when_seen: bool,
     /// Services: seen not running during this watch.
     seen_down: bool,
+    /// Had not shown up when the PC became usable: still watched after it.
+    late: bool,
+    /// Never started in recent boots watched to the end: not waited for.
+    never_starts: bool,
+}
+
+/// Still to show up when the PC becomes usable?
+fn is_missing(rec: &ItemRecord) -> bool {
+    match rec.item.kind() {
+        Kind::Service => rec.status == Status::Waiting,
+        _ => matches!(rec.status, Status::Waiting | Status::NotSeen),
+    }
+}
+
+/// The final word on an item nobody is waiting for any longer.
+fn settle(rec: &mut ItemRecord, now_ms: u64) {
+    match rec.status {
+        Status::Waiting => rec.status = Status::NotSeen,
+        Status::Starting => {
+            rec.status = Status::Started;
+            rec.ready_ms.get_or_insert(now_ms);
+        }
+        _ => {}
+    }
+}
+
+/// The record's items as they stand: everything not still watched is settled.
+fn snapshot(tracks: &[Track], now_ms: u64, last: bool) -> Vec<ItemRecord> {
+    tracks
+        .iter()
+        .map(|t| {
+            let mut r = t.rec.clone();
+            if last || r.status == Status::Waiting {
+                settle(&mut r, now_ms);
+            }
+            r
+        })
+        .collect()
 }
 
 fn ms_after(t: u64, sign_in: u64) -> u64 {
@@ -201,6 +243,8 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
     let mut tasks = win::logon_tasks();
     let mut last_task_poll = Instant::now();
     let mut quiet_since: Option<u64> = None;
+    let mut usable_ms: Option<u64> = None;
+    let mut late_started = 0;
     let mut first = true;
     let mut procs = procs;
 
@@ -240,9 +284,42 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
         }
 
         for t in tracks.iter_mut() {
-            update_track(t, &procs, &services, &tasks, session, sign_in, now_ms, first, watch_from_ms);
+            // Once usable, the rest keep the figures they had at that moment.
+            if usable_ms.is_none() || t.late {
+                update_track(t, &procs, &services, &tasks, session, sign_in, now_ms, first, watch_from_ms);
+            }
         }
         first = false;
+
+        if usable_ms.is_some() {
+            // Usable, and the record is saved. Keep watching only for the
+            // items that had not shown up, and save again as each one does.
+            let started = tracks.iter().filter(|t| t.late && t.rec.start_ms.is_some()).count();
+            let pending = tracks.iter().any(|t| t.late && (is_missing(&t.rec) || t.rec.status == Status::Starting));
+            let finished = !pending || now_ms >= history::WATCH_END_MS;
+            let exit = {
+                let mut s = shared.lock().unwrap();
+                s.metrics = Metrics { cpu, mem, disk, elapsed_ms: now_ms, eta_ms: None };
+                s.record.items = snapshot(&tracks, now_ms, finished);
+                s.record.watched_ms = now_ms;
+                if finished || started != late_started {
+                    history::save(&history::push(earlier.clone(), s.record.clone()));
+                }
+                s.finished = finished;
+                s.exit_when_done
+            };
+            late_started = started;
+            repaint();
+            if finished {
+                if exit {
+                    std::process::exit(0);
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1000).saturating_sub(tick.elapsed()));
+            procs = lister.list();
+            continue;
+        }
 
         let quiet = cpu < QUIET_CPU && disk < QUIET_DISK;
         quiet_since = if quiet { quiet_since.or(Some(now_ms)) } else { None };
@@ -264,22 +341,21 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
                 elapsed_ms: now_ms,
                 eta_ms: history::eta_ms(now_ms, &totals, &waiting),
             };
-            s.record.items = tracks.iter().map(|t| t.rec.clone()).collect();
             if let Some(at) = usable {
-                for r in s.record.items.iter_mut() {
-                    match r.status {
-                        Status::Waiting => r.status = Status::NotSeen,
-                        Status::Starting => {
-                            r.status = Status::Started;
-                            r.ready_ms = Some(now_ms);
-                        }
-                        _ => {}
+                for t in tracks.iter_mut() {
+                    t.late = is_missing(&t.rec) && !t.never_starts;
+                    if !t.late {
+                        settle(&mut t.rec, now_ms);
                     }
                 }
+                s.record.items = snapshot(&tracks, now_ms, false);
                 s.record.usable_ms = at;
+                s.record.watched_ms = now_ms;
                 let all = history::push(earlier.clone(), s.record.clone());
                 history::save(&all);
                 s.done = true;
+            } else {
+                s.record.items = tracks.iter().map(|t| t.rec.clone()).collect();
             }
         }
         repaint();
@@ -287,10 +363,7 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
             for item in &delayed {
                 crate::startup::launch(item);
             }
-            if shared.lock().unwrap().exit_when_done {
-                std::process::exit(0);
-            }
-            return;
+            usable_ms = usable;
         }
         std::thread::sleep(Duration::from_millis(1000).saturating_sub(tick.elapsed()));
         procs = lister.list();
@@ -443,6 +516,8 @@ impl Track {
             limit_ms,
             end_when_seen: false,
             seen_down: false,
+            late: false,
+            never_starts: false,
         }
     }
 }
@@ -456,7 +531,10 @@ fn gather_tracks(earlier: &[BootRecord], delayed: &[Item]) -> Vec<Track> {
         .map(|item| {
             let typical = history::typical_start(earlier, &item.id);
             let seen_before = earlier.iter().any(|b| b.items.iter().any(|r| r.item.id == item.id));
-            Track::new(ItemRecord::new(item), history::wait_limit_ms(typical, seen_before))
+            let never_starts = history::never_starts(earlier, &item.id);
+            let mut t = Track::new(ItemRecord::new(item), history::wait_limit_ms(typical, seen_before));
+            t.never_starts = never_starts;
+            t
         })
         .collect();
     for d in delayed {
