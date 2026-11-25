@@ -25,6 +25,10 @@ const BUSY_CPU_MS: u64 = 20;
 /// Once it has settled, it takes this much in a second to call it busy
 /// again: a passing blip must not reopen it and push "usable" back.
 const REBUSY_CPU_MS: u64 = 250;
+/// A ready time rebuilt for an app that was already running is a guess, so
+/// for this long after watching began any activity still corrects it. After
+/// that it stands like a measured one.
+const ESTIMATE_GRACE_MS: u64 = 5_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Metrics {
@@ -51,6 +55,10 @@ pub struct Shared {
     pub finished: bool,
     /// The window was closed: exit as soon as the collector has finished.
     pub exit_when_done: bool,
+    /// Frames the window has drawn, for the diagnostics log.
+    pub frames: u64,
+    /// What the window did since the last tick, for the diagnostics log.
+    pub events: Vec<String>,
 }
 
 pub enum Request {
@@ -81,6 +89,8 @@ pub fn spawn(mode: Mode, delayed: Vec<Item>, repaint: impl Fn() + Send + 'static
         note: None,
         finished: false,
         exit_when_done: false,
+        frames: 0,
+        events: Vec::new(),
     }));
     let (tx, rx) = channel();
     let s = shared.clone();
@@ -118,6 +128,14 @@ pub fn app_status(seen: bool, alive: bool, since_start_ms: u64, since_busy_ms: O
     } else {
         Status::Waiting
     }
+}
+
+/// Processor time in one second that marks an app as busy. One that has
+/// settled takes a real burst to reopen; a guessed ready time gives way to
+/// any activity, but only while watching has just begun.
+pub fn busy_threshold(ready: bool, estimated: bool, watched_ms: u64) -> u64 {
+    let settled = ready && (!estimated || watched_ms >= ESTIMATE_GRACE_MS);
+    if settled { REBUSY_CPU_MS } else { BUSY_CPU_MS }
 }
 
 /// When the PC became usable, if it has: everything counted is done and the
@@ -325,6 +343,18 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
             }
         }
         first = false;
+        // Before the log line, so it carries this tick's verdict.
+        if usable_ms.is_none() {
+            let quiet = cpu < QUIET_CPU && disk < QUIET_DISK;
+            quiet_since = if quiet { quiet_since.or(Some(now_ms)) } else { None };
+        }
+        let (frames, events) = {
+            let mut s = shared.lock().unwrap();
+            (s.frames, std::mem::take(&mut s.events))
+        };
+        for e in events {
+            log.add(now_ms, format!("ui    {e}"));
+        }
         log.observe(
             &crate::diag::Tick {
                 now_ms,
@@ -336,6 +366,7 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
                 work_ms: tick.elapsed().as_millis() as u64,
                 own_cpu_ms: procs.iter().find(|p| p.pid == me).map(|p| p.cpu / 10_000).unwrap_or(0),
                 processes: procs.len(),
+                frames,
             },
             tracks.iter().map(|t| &t.rec),
         );
@@ -374,8 +405,6 @@ fn run(mode: Mode, delayed: Vec<Item>, shared: Arc<Mutex<Shared>>, rx: Receiver<
             continue;
         }
 
-        let quiet = cpu < QUIET_CPU && disk < QUIET_DISK;
-        quiet_since = if quiet { quiet_since.or(Some(now_ms)) } else { None };
         let all_done = tracks.iter().filter(|t| t.rec.counts()).all(|t| t.rec.status.is_done());
         let waiting: Vec<u64> = tracks
             .iter()
@@ -527,8 +556,7 @@ fn update_track(
                 }
             } else {
                 let used = cpu_ticks.saturating_sub(t.last_cpu) / 10_000;
-                let settled = t.rec.ready_ms.is_some() && !t.rec.estimated;
-                if used >= if settled { REBUSY_CPU_MS } else { BUSY_CPU_MS } {
+                if used >= busy_threshold(t.rec.ready_ms.is_some(), t.rec.estimated, now_ms.saturating_sub(watch_from_ms)) {
                     t.busy_at = Some(now_ms);
                     t.rec.estimated = false;
                     t.rec.ready_ms = None;
@@ -703,6 +731,16 @@ mod tests {
         println!("cpu/disk {:?}, mem {}", c.sample(), win::memory_load());
         println!("work area {:?}", win::work_area_points());
         assert!(!procs.is_empty());
+    }
+
+    #[test]
+    fn a_blip_does_not_reopen_an_app_with_a_guessed_ready_time() {
+        // Still starting, or a guess made a moment ago: any activity counts.
+        assert_eq!(busy_threshold(false, false, 60_000), BUSY_CPU_MS);
+        assert_eq!(busy_threshold(true, true, 3_000), BUSY_CPU_MS);
+        // Settled, measured or guessed: only a real burst reopens it.
+        assert_eq!(busy_threshold(true, false, 0), REBUSY_CPU_MS);
+        assert_eq!(busy_threshold(true, true, 16_000), REBUSY_CPU_MS);
     }
 
     #[test]

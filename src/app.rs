@@ -278,11 +278,7 @@ impl App {
 
     fn expand(&mut self, ctx: &egui::Context) {
         self.overlay = false;
-        if !self.wide_fonts {
-            // The full window lists item names, which may need them.
-            self.wide_fonts = true;
-            theme::install_fonts(ctx, true);
-        }
+        self.log_event("window opened");
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
         ctx.send_viewport_cmd(egui::ViewportCommand::Resizable(true));
@@ -296,10 +292,33 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
+    /// A line for the collector's diagnostics log.
+    fn log_event(&self, text: &str) {
+        if let Some(h) = &self.live {
+            h.shared.lock().unwrap().events.push(text.to_owned());
+        }
+    }
+
+    /// The full window lists item names, which may need the East Asian
+    /// fonts. They are some 50 MB to read, enough to count as a busy disk and
+    /// push "usable" back, so they wait until the timing is over.
+    fn load_wide_fonts_when_free(&mut self, ctx: &egui::Context) {
+        if self.wide_fonts || self.overlay {
+            return;
+        }
+        if self.live.as_ref().is_some_and(|h| !h.shared.lock().unwrap().done) {
+            return;
+        }
+        self.wide_fonts = true;
+        theme::install_fonts(ctx, true);
+        self.log_event("wide fonts loaded");
+    }
+
     /// Back to the small overlay by the notification area.
     fn collapse(&mut self, ctx: &egui::Context) {
         self.overlay = true;
         self.ready_since = None;
+        self.log_event("window back to overlay");
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
         ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(vec2(300.0, 150.0)));
@@ -525,6 +544,7 @@ impl App {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         } else {
                             s.exit_when_done = true;
+                            s.events.push("overlay hidden".to_owned());
                             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                         }
                     }
@@ -1476,6 +1496,10 @@ impl eframe::App for App {
             self.show_scene(scene);
         }
         self.keep_watching_on_close(&ctx);
+        if let Some(h) = &self.live {
+            h.shared.lock().unwrap().frames += 1;
+        }
+        self.load_wide_fonts_when_free(&ctx);
         if crate::tray::take_open_request() {
             // Asked for from the tray icon: the window is wanted again, so
             // the collector must not end the process behind it.

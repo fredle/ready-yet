@@ -45,6 +45,8 @@ pub struct Tick {
     /// Ready Yet's own processor time so far, ms.
     pub own_cpu_ms: u64,
     pub processes: usize,
+    /// Frames the window has drawn so far.
+    pub frames: u64,
 }
 
 impl Log {
@@ -98,7 +100,7 @@ impl Log {
             self.add(
                 t.now_ms,
                 format!(
-                    "tick  #{} cpu {:.0}% disk {:.1} MB/s mem {:.0}% | {done}/{total} done | quiet_since={} usable={} | {} processes | tick work {} ms (worst {}) | own cpu {} ms",
+                    "tick  #{} cpu {:.0}% disk {:.1} MB/s mem {:.0}% | {done}/{total} done | quiet_since={} usable={} | {} processes | tick work {} ms (worst {}) | own cpu {} ms | frames {}",
                     self.ticks,
                     t.cpu,
                     mb(t.disk),
@@ -109,6 +111,7 @@ impl Log {
                     t.work_ms,
                     self.worst_tick_ms,
                     t.own_cpu_ms,
+                    t.frames,
                 ),
             );
         }
@@ -286,7 +289,7 @@ mod tests {
     }
 
     fn tick(now_ms: u64, quiet: bool) -> Tick {
-        Tick { now_ms, cpu: 10.0, disk: 0.0, mem: 40.0, quiet_since: quiet.then_some(now_ms), usable: false, work_ms: 3, own_cpu_ms: 0, processes: 1 }
+        Tick { now_ms, cpu: 10.0, disk: 0.0, mem: 40.0, quiet_since: quiet.then_some(now_ms), usable: false, work_ms: 3, own_cpu_ms: 0, processes: 1, frames: 0 }
     }
 
     /// Prints a real report: `cargo test --release -- --ignored live_report --nocapture`.
