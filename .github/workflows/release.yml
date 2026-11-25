@@ -153,7 +153,7 @@ jobs:
           $raw = msstore submission get $env:STORE_PRODUCT_ID 2>store-get.err
           if ($LASTEXITCODE -ne 0) {
             $said = (@($raw) + @(Get-Content store-get.err -ErrorAction SilentlyContinue)) -join "`n"
-            $plain = $said -replace '\[[0-9;]*m', ''
+            $plain = $said -replace '\x1b\[[0-9;]*m', ''
             Write-Host $said
             # The Store API cannot see a product until its first submission,
             # made by hand, has passed review and gone live. Not a failure of
