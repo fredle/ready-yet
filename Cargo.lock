@@ -1933,7 +1933,7 @@ dependencies = [
 
 [[package]]
 name = "ready_yet"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "eframe",
  "raw-window-handle",
