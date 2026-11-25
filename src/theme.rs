@@ -134,8 +134,11 @@ const DARK: Palette = Palette {
 /// Ready Yet has none; its twin draws an accent band here.
 pub fn window_mark(_ui: &mut egui::Ui, _p: &Palette) {}
 
-/// The same for the sign-in overlay.
-pub fn overlay_mark(_ui: &mut egui::Ui, _p: &Palette) {}
+
+/// The palette for a light or dark look, for drawing outside egui.
+pub fn palette_for(dark: bool) -> Palette {
+    if dark { DARK } else { LIGHT }
+}
 
 pub fn palette(ctx: &egui::Context) -> Palette {
     match ctx.theme() {
@@ -546,7 +549,8 @@ pub fn strong() -> FontId {
 }
 
 /// The sign-in overlay's window size.
-pub const OVERLAY_SIZE: Vec2 = vec2(330.0, 176.0);
+/// The sign-in overlay (drawn with GDI in `overlay.rs`) has no accent rule.
+pub const OVERLAY_RULE: bool = false;
 /// Height of a row in the startup list.
 pub const ROW_HEIGHT: f32 = 48.0;
 /// Width of the name column in the timeline.
