@@ -72,7 +72,9 @@ Data stored locally, in %LOCALAPPDATA%\ReadyYet:
 
 Ready Yet also adds a "Ready Yet" entry to your account's Run registry key so it opens at sign-in, or, with Start earlier on, a sign-in scheduled task. Both are removed when you turn the option off.
 
-Network: the only network use is the update check. About once a day, if "Automatically update" is on, Ready Yet asks GitHub Releases whether a newer version exists and downloads it. No usage data, process lists or personal information is sent anywhere. There is no telemetry and no account.
+Network: apart from a feedback note you choose to send (below), the only network use is the update check. About once a day, if "Automatically update" is on, Ready Yet asks GitHub Releases whether a newer version exists and downloads it. No usage data, process lists or personal information is sent anywhere. There is no telemetry and no account.
+
+Feedback: the "What would make this better?" link in the window lets you send the developer a short note. Only the note, the app's name and version, and the platform are sent, to the developer's server at feedback.leatham.net, and only when you press Send. No name, email address or device identifier is sent, and the server does not keep IP addresses. Notes are used only to improve the app and are never shared or sold.
 
 ## Screenshots
 
