@@ -48,7 +48,7 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
         }
         // One collector per session, even if both the Run entry and the
         // early task fire.
-        _guard = win::single_instance("Local\\ReadyYetCollector");
+        _guard = win::single_instance(crate::brand::COLLECTOR_MUTEX);
         if _guard.is_none() {
             return Ok(());
         }
@@ -66,7 +66,7 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
         live = Some((handle, window));
     }
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Ready Yet")
+        .with_title(crate::brand::NAME)
         .with_icon(window_icon())
         .with_min_inner_size([300.0, 150.0]);
     if collect {
@@ -86,7 +86,7 @@ pub fn run(args: Vec<String>) -> eframe::Result<()> {
         ..Default::default()
     };
     let result = eframe::run_native(
-        "Ready Yet",
+        crate::brand::NAME,
         options,
         Box::new(move |cc| Ok(Box::new(App::new(&args, &cc.egui_ctx, live, main_window(cc))))),
     );
@@ -465,7 +465,7 @@ impl App {
                 autostart::set_standard(true);
             }
             self.settings.watch = true;
-            self.say(ctx, "Ready Yet will watch your next sign-in.", Tone::Success);
+            self.say(ctx, format!("{} will watch your next sign-in.", crate::brand::NAME), Tone::Success);
         } else {
             if self.settings.early {
                 match autostart::disable_early() {
@@ -478,7 +478,7 @@ impl App {
             }
             autostart::set_standard(false);
             self.settings.watch = false;
-            // Held-back items rely on Ready Yet to start them.
+            // Held-back items rely on the app to start them.
             let n = self.settings.delayed.len();
             for item in std::mem::take(&mut self.settings.delayed) {
                 crate::startup::set_enabled(&item, true);
@@ -507,9 +507,9 @@ impl App {
                 }
                 self.save();
                 let text = if on {
-                    "From your next sign-in, Ready Yet watches from the first second."
+                    format!("From your next sign-in, {} watches from the first second.", crate::brand::NAME)
                 } else {
-                    "Ready Yet starts with your other apps again."
+                    format!("{} starts with your other apps again.", crate::brand::NAME)
                 };
                 self.say(ctx, text, Tone::Success);
             }
@@ -865,9 +865,9 @@ impl App {
             ui.label(RichText::new("Watch from the first second?").font(theme::title()).color(p.text));
             ui.add_space(4.0);
             for text in [
-                "Ready Yet is set to open with your other startup apps, so it cannot watch anything that starts before it does. It works out those timings afterwards.",
-                "Start earlier opens it the moment you sign in. You see everything as it happens, and you can stop an app before it opens.",
-                "Windows will ask for administrator approval once. You can change this at any time in Options.",
+                format!("{} is set to open with your other startup apps, so it cannot watch anything that starts before it does. It works out those timings afterwards.", crate::brand::NAME),
+                "Start earlier opens it the moment you sign in. You see everything as it happens, and you can stop an app before it opens.".to_owned(),
+                "Windows will ask for administrator approval once. You can change this at any time in Options.".to_owned(),
             ] {
                 ui.add(egui::Label::new(RichText::new(text).font(theme::body()).color(p.muted)).wrap());
                 ui.add_space(4.0);
@@ -980,12 +980,12 @@ impl App {
         self.held_sections(ui, p);
     }
 
-    /// Items Ready Yet holds back or has turned off, with the way back.
+    /// Items the app holds back or has turned off, with the way back.
     fn held_sections(&mut self, ui: &mut egui::Ui, p: Palette) {
         let ctx = ui.ctx().clone();
         for (title, list, held) in [
-            ("Held back until the PC is ready", self.settings.delayed.clone(), true),
-            ("Turned off by Ready Yet", self.settings.turned_off.clone(), false),
+            ("Held back until the PC is ready".to_owned(), self.settings.delayed.clone(), true),
+            (format!("Turned off by {}", crate::brand::NAME), self.settings.turned_off.clone(), false),
         ] {
             if list.is_empty() {
                 continue;
@@ -1103,10 +1103,11 @@ impl App {
                     // would break it; the option does the job properly.
                     ui.add(
                         egui::Label::new(
-                            RichText::new(
-                                "This is Ready Yet itself. To stop it opening at sign-in, turn off \
+                            RichText::new(format!(
+                                "This is {} itself. To stop it opening at sign-in, turn off \
                                  \"Watch every sign-in\" in Options.",
-                            )
+                                crate::brand::NAME
+                            ))
                             .font(theme::small())
                             .color(p.muted),
                         )
@@ -1159,7 +1160,8 @@ impl App {
                 theme::paint_icon(ui.painter(), r.center(), Icon::Info, p.muted);
                 ui.label(
                     RichText::new(format!(
-                        "Ready Yet opened {} after sign-in. Programs that ran and closed before then are missing.",
+                        "{} opened {} after sign-in. Programs that ran and closed before then are missing.",
+                        crate::brand::NAME,
                         history::fmt_secs(rec.watch_from_ms)
                     ))
                     .font(theme::small())
@@ -1233,7 +1235,7 @@ impl App {
         let mut slow: Vec<(&ItemRecord, u64)> = rec
             .items
             .iter()
-            // Ready Yet is busy for as long as it watches: not a slow starter.
+            // The app is busy for as long as it watches: not a slow starter.
             .filter(|r| r.item.kind() != Kind::Service && !r.item.is_self())
             .filter_map(|r| Some((r, r.ready_ms?.saturating_sub(r.start_ms?))))
             .filter(|(_, d)| *d > 0)
@@ -1342,11 +1344,11 @@ fn describe(r: &ItemRecord, mode: Mode, watch_from_ms: u64, live: bool) -> Strin
         Status::Exited if r.item.kind() == Kind::Service => "Set to start automatically, not running".to_owned(),
         Status::Exited => format!("Ran at {} and closed{cost}", at(r.start_ms)),
         Status::NotSeen if mode == Mode::Standard && watch_from_ms > 2_000 => {
-            "Not seen. It may have run and closed before Ready Yet opened".to_owned()
+            format!("Not seen. It may have run and closed before {} opened", crate::brand::NAME)
         }
         Status::NotSeen if live => "Not seen yet, no longer waited for".to_owned(),
         Status::NotSeen => "Did not start before the PC was ready".to_owned(),
-        Status::Ended => "Ended from Ready Yet".to_owned(),
+        Status::Ended => format!("Ended from {}", crate::brand::NAME),
         Status::Delayed => "Held back until the PC is ready".to_owned(),
     }
 }
@@ -1406,7 +1408,7 @@ fn demo_record(at: Option<u64>) -> BootRecord {
     // name, kind, start s, busy for s, cpu ms, io MB
     let rows: [(&str, u8, f32, f32, u64, u64); 14] = [
         ("Security notification icon", 0, 1.4, 0.8, 310, 4),
-        ("Ready Yet", 0, 2.1, 0.6, 180, 3),
+        (crate::brand::NAME, 0, 2.1, 0.6, 180, 3),
         ("OneDrive", 0, 3.0, 9.5, 4_200, 96),
         ("Realtek Audio Console", 0, 3.6, 2.2, 640, 18),
         ("Teams", 0, 5.2, 24.8, 11_240, 310),
@@ -1513,6 +1515,7 @@ impl eframe::App for App {
         }
         let p = theme::palette(&ctx);
         if self.overlay {
+            theme::overlay_mark(ui_root, &p);
             egui::CentralPanel::default()
                 .frame(
                     egui::Frame::new()
@@ -1523,6 +1526,7 @@ impl eframe::App for App {
                 .show(ui_root, |ui| self.overlay_ui(ui));
             return;
         }
+        theme::window_mark(ui_root, &p);
         egui::Panel::bottom("footer")
             .frame(egui::Frame::new().fill(p.bg).inner_margin(egui::Margin::symmetric(16, 8)))
             .show(ui_root, |ui| self.footer(ui));
@@ -1563,7 +1567,7 @@ mod tests {
     fn standard_mode_explains_what_it_could_not_see() {
         let mut r = demo_record(None).items.remove(0);
         r.status = Status::NotSeen;
-        assert!(describe(&r, Mode::Standard, 14_000, false).contains("before Ready Yet opened"));
+        assert!(describe(&r, Mode::Standard, 14_000, false).contains(&format!("before {} opened", crate::brand::NAME)));
         assert_eq!(describe(&r, Mode::Early, 0, false), "Did not start before the PC was ready");
         r.status = Status::Waiting;
         assert!(describe(&r, Mode::Standard, 0, true).contains("no process seen yet"));

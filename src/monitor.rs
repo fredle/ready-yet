@@ -201,7 +201,7 @@ fn is_missing(rec: &ItemRecord) -> bool {
     match rec.item.kind() {
         // Only apps are watched on after "usable". Tasks and delayed
         // services that have not run by then mostly never do, and waiting
-        // for them kept Ready Yet in memory for ten minutes.
+        // for them kept the app in memory for ten minutes.
         Kind::App => matches!(rec.status, Status::Waiting | Status::NotSeen),
         Kind::Task | Kind::Service => false,
     }
@@ -547,7 +547,7 @@ fn update_track(
             if alive && !t.seen {
                 t.seen = true;
                 if first && watch_from_ms > 2_000 {
-                    // Already running when Ready Yet started: rebuild from
+                    // Already running when the app started: rebuild from
                     // its start time and processor time.
                     t.rec.estimated = true;
                     t.rec.ready_ms = t.rec.start_ms.map(|s| (s + t.rec.cpu_ms).min(watch_from_ms));
@@ -564,7 +564,7 @@ fn update_track(
             }
             t.last_cpu = cpu_ticks;
             if alive && t.rec.item.is_self() {
-                // Ready Yet is busy for as long as it watches: there is no
+                // The app is busy for as long as it watches: there is no
                 // settling to time, only when it started and what it cost.
                 t.rec.status = Status::Started;
                 t.rec.estimated = false;
@@ -621,7 +621,7 @@ impl Track {
     }
 }
 
-/// The startup list, ready to track, with Ready Yet's held-back items.
+/// The startup list, ready to track, with the app's held-back items.
 fn gather_tracks(earlier: &[BootRecord], delayed: &[Item]) -> Vec<Track> {
     let mut items = crate::startup::gather();
     items.retain(|i| !delayed.iter().any(|d| d.id == i.id));

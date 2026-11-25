@@ -1,4 +1,4 @@
-//! Diagnostics for developing Ready Yet: a timed log of what the collector
+//! Diagnostics for developing the app: a timed log of what the collector
 //! saw and decided during a sign-in, and a plain-text report the user can
 //! copy from Options. Nothing here is sent anywhere; the report only leaves
 //! the PC if the user pastes it somewhere.
@@ -42,7 +42,7 @@ pub struct Tick {
     pub usable: bool,
     /// How long this tick's own work took.
     pub work_ms: u64,
-    /// Ready Yet's own processor time so far, ms.
+    /// The app's own processor time so far, ms.
     pub own_cpu_ms: u64,
     pub processes: usize,
     /// Frames the window has drawn so far.
@@ -195,7 +195,7 @@ fn record_block(out: &mut String, b: &BootRecord) {
 pub fn report(version: &str, settings: &Settings, live: Option<&BootRecord>) -> String {
     let mut out = String::new();
     let now = win::ft_to_unix(win::now_ft());
-    let _ = writeln!(out, "Ready Yet diagnostics");
+    let _ = writeln!(out, "{} diagnostics", crate::brand::NAME);
     let _ = writeln!(out, "=====================");
     let _ = writeln!(out, "version: {version}");
     let _ = writeln!(out, "generated: {} ({now})", when(now));

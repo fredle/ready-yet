@@ -130,6 +130,13 @@ const DARK: Palette = Palette {
     error_soft: hex(0x3E2226),
 };
 
+/// The app's own mark on the main window, drawn before its other panels.
+/// Ready Yet has none; its twin draws an accent band here.
+pub fn window_mark(_ui: &mut egui::Ui, _p: &Palette) {}
+
+/// The same for the sign-in overlay.
+pub fn overlay_mark(_ui: &mut egui::Ui, _p: &Palette) {}
+
 pub fn palette(ctx: &egui::Context) -> Palette {
     match ctx.theme() {
         Theme::Dark => DARK,
